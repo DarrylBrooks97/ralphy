@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,8 +44,8 @@ function getPlatformBinary() {
 function commandExists(name) {
 	try {
 		const cmd = isWindows ? "where" : "which";
-		execSync(`${cmd} ${name}`, { stdio: ["pipe", "pipe", "pipe"] });
-		return true;
+		const result = spawnSync(cmd, [name], { stdio: "pipe" });
+		return result.status === 0;
 	} catch {
 		return false;
 	}
