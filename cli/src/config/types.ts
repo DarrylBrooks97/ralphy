@@ -93,6 +93,8 @@ export interface RuntimeOptions {
 	skipMerge?: boolean;
 	/** Use lightweight sandboxes instead of git worktrees for parallel execution */
 	useSandbox?: boolean;
+	/** Additional arguments to pass to the engine CLI */
+	engineArgs?: string[];
 }
 
 /**

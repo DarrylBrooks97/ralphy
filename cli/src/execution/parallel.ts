@@ -6,11 +6,14 @@ import type { AIEngine, AIResult } from "../engines/types.ts";
 import { getCurrentBranch, returnToBaseBranch } from "../git/branch.ts";
 import {
 	abortMerge,
+	analyzePreMerge,
 	createIntegrationBranch,
 	deleteLocalBranch,
 	mergeAgentBranch,
+	sortByConflictLikelihood,
 } from "../git/merge.ts";
 import { cleanupAgentWorktree, createAgentWorktree, getWorktreeBase } from "../git/worktree.ts";
+import { CachedTaskSource } from "../tasks/cached-task-source.ts";
 import type { Task, TaskSource } from "../tasks/types.ts";
 import { YamlTaskSource } from "../tasks/yaml.ts";
 import { logDebug, logError, logInfo, logSuccess, logWarn } from "../ui/logger.ts";
@@ -56,6 +59,7 @@ async function runAgentInWorktree(
 	skipLint: boolean,
 	browserEnabled: "auto" | "true" | "false",
 	modelOverride?: string,
+	engineArgs?: string[],
 ): Promise<ParallelAgentResult> {
 	let worktreeDir = "";
 	let branchName = "";
@@ -105,7 +109,10 @@ async function runAgentInWorktree(
 		});
 
 		// Execute with retry
-		const engineOptions = modelOverride ? { modelOverride } : undefined;
+		const engineOptions = {
+			...(modelOverride && { modelOverride }),
+			...(engineArgs && engineArgs.length > 0 && { engineArgs }),
+		};
 		const result = await withRetry(
 			async () => {
 				const res = await engine.execute(prompt, worktreeDir, engineOptions);
@@ -250,6 +257,7 @@ export async function runParallel(
 		modelOverride,
 		skipMerge,
 		useSandbox = false,
+		engineArgs,
 	} = options;
 
 	const result: ExecutionResult = {
@@ -293,11 +301,18 @@ export async function runParallel(
 		let tasks: Task[] = [];
 
 		// For YAML sources, try to get tasks from the same parallel group
-		if (taskSource instanceof YamlTaskSource) {
+		// Support both direct YamlTaskSource and CachedTaskSource wrapping YamlTaskSource
+		const isYamlSource =
+			taskSource instanceof YamlTaskSource ||
+			(taskSource instanceof CachedTaskSource && taskSource.isYamlSource());
+
+		if (isYamlSource) {
 			const nextTask = await taskSource.getNextTask();
 			if (!nextTask) break;
 
+			// Get parallel group - works for both direct and cached sources
 			const group = await taskSource.getParallelGroup(nextTask.title);
+
 			if (group > 0) {
 				tasks = await taskSource.getTasksInGroup(group);
 			} else {
@@ -364,12 +379,15 @@ export async function runParallel(
 				skipLint,
 				browserEnabled,
 				modelOverride,
+				engineArgs,
 			);
 		});
 
 		const results = await Promise.all(promises);
 
-		// Process results
+		// Process results and collect worktrees for parallel cleanup
+		const worktreesToCleanup: Array<{ worktreeDir: string; branchName: string }> = [];
+
 		for (const agentResult of results) {
 			const { task, worktreeDir, branchName, result: aiResult, error, usedSandbox: agentUsedSandbox } = agentResult;
 
@@ -400,17 +418,34 @@ export async function runParallel(
 				notifyTaskFailed(task.title, errMsg);
 			}
 
-			// Cleanup worktree or sandbox
+			// Cleanup sandbox inline or collect worktree for parallel cleanup
 			if (worktreeDir) {
 				if (agentUsedSandbox) {
 					// Sandbox cleanup is simpler - just delete the directory
 					await cleanupSandbox(worktreeDir);
 					logDebug(`Cleaned up sandbox: ${worktreeDir}`);
 				} else {
-					const cleanup = await cleanupAgentWorktree(worktreeDir, branchName, workDir);
-					if (cleanup.leftInPlace) {
-						logInfo(`Worktree left in place (uncommitted changes): ${worktreeDir}`);
-					}
+					// Collect worktree for parallel cleanup below
+					worktreesToCleanup.push({ worktreeDir, branchName });
+				}
+			}
+		}
+
+		// Cleanup all worktrees in parallel
+		if (worktreesToCleanup.length > 0) {
+			const cleanupResults = await Promise.all(
+				worktreesToCleanup.map(({ worktreeDir, branchName }) =>
+					cleanupAgentWorktree(worktreeDir, branchName, workDir).then((cleanup) => ({
+						worktreeDir,
+						leftInPlace: cleanup.leftInPlace,
+					})),
+				),
+			);
+
+			// Log any worktrees left in place
+			for (const { worktreeDir, leftInPlace } of cleanupResults) {
+				if (leftInPlace) {
+					logInfo(`Worktree left in place (uncommitted changes): ${worktreeDir}`);
 				}
 			}
 		}
@@ -424,6 +459,7 @@ export async function runParallel(
 			engine,
 			workDir,
 			modelOverride,
+			engineArgs,
 		);
 
 		// Restore starting branch if we're not already on it
@@ -438,7 +474,13 @@ export async function runParallel(
 }
 
 /**
- * Merge completed branches back to the base branch
+ * Merge completed branches back to the base branch.
+ *
+ * Optimized merge phase:
+ * 1. Parallel pre-merge analysis (git diff doesn't require locks)
+ * 2. Sort branches by conflict likelihood (merge clean ones first)
+ * 3. Sequential merges (git locking requirement)
+ * 4. Parallel branch deletion
  */
 async function mergeCompletedBranches(
 	branches: string[],
@@ -446,6 +488,7 @@ async function mergeCompletedBranches(
 	engine: AIEngine,
 	workDir: string,
 	modelOverride?: string,
+	engineArgs?: string[],
 ): Promise<void> {
 	if (branches.length === 0) {
 		return;
@@ -453,11 +496,30 @@ async function mergeCompletedBranches(
 
 	logInfo(`\nMerge phase: merging ${branches.length} branch(es) into ${targetBranch}`);
 
+	// Stage 1: Parallel pre-merge analysis
+	// Run git diff for all branches in parallel (doesn't require locks)
+	logDebug("Analyzing branches for potential conflicts...");
+	const analyses = await Promise.all(
+		branches.map((branch) => analyzePreMerge(branch, targetBranch, workDir)),
+	);
+
+	// Stage 2: Sort by conflict likelihood (merge clean ones first)
+	// This reduces the chance of early conflicts blocking later clean merges
+	const sortedAnalyses = sortByConflictLikelihood(analyses);
+	const sortedBranches = sortedAnalyses.map((a) => a.branch);
+
+	if (sortedBranches[0] !== branches[0]) {
+		logDebug("Reordered branches to minimize conflicts");
+	}
+
+	// Stage 3: Sequential merges (git operations require this)
 	const merged: string[] = [];
 	const failed: string[] = [];
 
-	for (const branch of branches) {
-		logInfo(`Merging ${branch}...`);
+	for (const branch of sortedBranches) {
+		const analysis = analyses.find((a) => a.branch === branch);
+		const fileCount = analysis?.fileCount ?? 0;
+		logInfo(`Merging ${branch}... (${fileCount} file${fileCount === 1 ? "" : "s"} changed)`);
 
 		const mergeResult = await mergeAgentBranch(branch, targetBranch, workDir);
 
@@ -474,6 +536,7 @@ async function mergeCompletedBranches(
 				branch,
 				workDir,
 				modelOverride,
+				engineArgs,
 			);
 
 			if (resolved) {
@@ -490,11 +553,20 @@ async function mergeCompletedBranches(
 		}
 	}
 
-	// Delete successfully merged branches
-	for (const branch of merged) {
-		const deleted = await deleteLocalBranch(branch, workDir, true);
-		if (deleted) {
-			logDebug(`Deleted merged branch: ${branch}`);
+	// Stage 4: Parallel branch deletion
+	// Delete all successfully merged branches in parallel
+	if (merged.length > 0) {
+		const deleteResults = await Promise.all(
+			merged.map(async (branch) => {
+				const deleted = await deleteLocalBranch(branch, workDir, true);
+				return { branch, deleted };
+			}),
+		);
+
+		for (const { branch, deleted } of deleteResults) {
+			if (deleted) {
+				logDebug(`Deleted merged branch: ${branch}`);
+			}
 		}
 	}
 

@@ -189,3 +189,98 @@ export async function branchExists(branchName: string, workDir: string): Promise
 	const branches = await git.branchLocal();
 	return branches.all.includes(branchName);
 }
+
+/**
+ * Result of pre-merge analysis
+ */
+export interface PreMergeAnalysis {
+	branch: string;
+	filesChanged: string[];
+	fileCount: number;
+}
+
+/**
+ * Analyze a branch before merging to predict potential conflicts.
+ * Uses git diff --name-only which doesn't require locks and can run in parallel.
+ */
+export async function analyzePreMerge(
+	branch: string,
+	targetBranch: string,
+	workDir: string,
+): Promise<PreMergeAnalysis> {
+	const git: SimpleGit = simpleGit(workDir);
+
+	try {
+		// Get list of files that differ between the branch and target
+		// Using three-dot notation to show changes since the branches diverged
+		const diffOutput = await git.diff([`${targetBranch}...${branch}`, "--name-only"]);
+		const filesChanged = diffOutput
+			.split("\n")
+			.map((f) => f.trim())
+			.filter((f) => f.length > 0);
+
+		return {
+			branch,
+			filesChanged,
+			fileCount: filesChanged.length,
+		};
+	} catch {
+		// If diff fails (e.g., branch doesn't exist), return empty analysis
+		return {
+			branch,
+			filesChanged: [],
+			fileCount: 0,
+		};
+	}
+}
+
+/**
+ * Calculate conflict likelihood between branches based on file overlap.
+ * Returns a score where higher = more likely to conflict.
+ */
+export function calculateConflictScore(
+	branchAnalysis: PreMergeAnalysis,
+	allAnalyses: PreMergeAnalysis[],
+): number {
+	let conflictScore = 0;
+	const branchFiles = new Set(branchAnalysis.filesChanged);
+
+	// Check overlap with other branches
+	for (const other of allAnalyses) {
+		if (other.branch === branchAnalysis.branch) continue;
+
+		// Count overlapping files
+		for (const file of other.filesChanged) {
+			if (branchFiles.has(file)) {
+				conflictScore++;
+			}
+		}
+	}
+
+	return conflictScore;
+}
+
+/**
+ * Sort branches by conflict likelihood (lowest first).
+ * Branches that touch fewer shared files should merge first.
+ */
+export function sortByConflictLikelihood(
+	analyses: PreMergeAnalysis[],
+): PreMergeAnalysis[] {
+	// Calculate conflict scores for each branch
+	const withScores = analyses.map((analysis) => ({
+		analysis,
+		score: calculateConflictScore(analysis, analyses),
+	}));
+
+	// Sort by score (ascending) - merge least conflicting first
+	// Secondary sort by file count (ascending) - simpler changes first
+	withScores.sort((a, b) => {
+		if (a.score !== b.score) {
+			return a.score - b.score;
+		}
+		return a.analysis.fileCount - b.analysis.fileCount;
+	});
+
+	return withScores.map((ws) => ws.analysis);
+}
