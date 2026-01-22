@@ -1757,7 +1757,12 @@ parse_ai_result() {
       ;;
     copilot)
       # Copilot: extract response from text output
-      response=$(echo "$result" | grep -v "^\?" | grep -v "^❯" | grep -v "Thinking..." | grep -v "Working on it..." | sed '/^$/d' | head -20 | tail -10 || echo "Task completed")
+      # Filter out interactive prompts and control characters
+      local filtered_output
+      filtered_output=$(echo "$result" | grep -v "^\?" | grep -v "^❯" | grep -v "Thinking..." | grep -v "Working on it..." | sed '/^$/d')
+      
+      # Get the last 10 lines from the first 20 lines of output to capture the response
+      response=$(echo "$filtered_output" | head -20 | tail -10 || echo "Task completed")
       
       # Tokens remain 0 for Copilot (not available in programmatic mode)
       input_tokens=0

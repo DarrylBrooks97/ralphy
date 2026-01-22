@@ -14,11 +14,19 @@ export class CopilotEngine extends BaseAIEngine {
 	name = "GitHub Copilot";
 	cliCommand = "copilot";
 
-	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
+	/**
+	 * Build command arguments for Copilot CLI
+	 */
+	private buildArgs(prompt: string, options?: EngineOptions): string[] {
 		const args = ["-p", prompt];
 		if (options?.modelOverride) {
 			args.push("--model", options.modelOverride);
 		}
+		return args;
+	}
+
+	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
+		const args = this.buildArgs(prompt, options);
 
 		const startTime = Date.now();
 		const { stdout, stderr, exitCode } = await execCommand(this.cliCommand, args, workDir);
@@ -76,10 +84,7 @@ export class CopilotEngine extends BaseAIEngine {
 		onProgress: ProgressCallback,
 		options?: EngineOptions,
 	): Promise<AIResult> {
-		const args = ["-p", prompt];
-		if (options?.modelOverride) {
-			args.push("--model", options.modelOverride);
-		}
+		const args = this.buildArgs(prompt, options);
 
 		const outputLines: string[] = [];
 		const startTime = Date.now();
