@@ -26,7 +26,6 @@ export class CachedTaskSource implements TaskSource {
 	private pendingCompletions: Set<string> = new Set();
 	private flushTimer: ReturnType<typeof setTimeout> | null = null;
 	private flushIntervalMs: number;
-	private flushed = false;
 
 	constructor(inner: TaskSource, options?: CachedTaskSourceOptions) {
 		this.inner = inner;
@@ -103,22 +102,16 @@ export class CachedTaskSource implements TaskSource {
 
 	/**
 	 * Flush all pending completions to the underlying source.
+	 * Safe to call multiple times - no-op if nothing pending.
 	 * IMPORTANT: Always call this before process exit to ensure data is persisted.
-	 * The caller (run.ts) is responsible for calling flush() - we don't use exit
-	 * handlers because they can't reliably await async operations.
 	 */
 	async flush(): Promise<void> {
-		if (this.flushed) {
-			return;
-		}
-
 		if (this.flushTimer) {
 			clearTimeout(this.flushTimer);
 			this.flushTimer = null;
 		}
 
 		if (this.pendingCompletions.size === 0) {
-			this.flushed = true;
 			return;
 		}
 
@@ -127,7 +120,6 @@ export class CachedTaskSource implements TaskSource {
 			await this.inner.markComplete(id);
 		}
 		this.pendingCompletions.clear();
-		this.flushed = true;
 
 		// Invalidate cache so next read picks up any external changes
 		this.cachedTasks = null;
