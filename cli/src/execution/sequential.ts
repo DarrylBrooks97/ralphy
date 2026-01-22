@@ -128,9 +128,9 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 						spinner.updateStep("Working");
 
 						// Use streaming if available
-						const engineOptions = { 
+						const engineOptions = {
 							...(modelOverride && { modelOverride }),
-							...(engineArgs && engineArgs.length > 0 && { engineArgs })
+							...(engineArgs && engineArgs.length > 0 && { engineArgs }),
 						};
 						if (engine.executeStreaming) {
 							return await engine.executeStreaming(

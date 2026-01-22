@@ -99,7 +99,7 @@ async function runAgentInWorktree(
 		// Execute with retry
 		const engineOptions = {
 			...(modelOverride && { modelOverride }),
-			...(engineArgs && engineArgs.length > 0 && { engineArgs })
+			...(engineArgs && engineArgs.length > 0 && { engineArgs }),
 		};
 		const result = await withRetry(
 			async () => {

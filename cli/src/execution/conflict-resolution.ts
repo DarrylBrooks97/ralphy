@@ -48,7 +48,7 @@ export async function resolveConflictsWithAI(
 	const prompt = buildConflictResolutionPrompt(conflictedFiles, branchName);
 	const engineOptions = {
 		...(modelOverride && { modelOverride }),
-		...(engineArgs && engineArgs.length > 0 && { engineArgs })
+		...(engineArgs && engineArgs.length > 0 && { engineArgs }),
 	};
 
 	try {

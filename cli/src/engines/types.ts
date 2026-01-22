@@ -50,4 +50,11 @@ export interface AIEngine {
 /**
  * Supported AI engine names
  */
-export type AIEngineName = "claude" | "opencode" | "cursor" | "codex" | "qwen" | "droid" | "copilot";
+export type AIEngineName =
+	| "claude"
+	| "opencode"
+	| "cursor"
+	| "codex"
+	| "qwen"
+	| "droid"
+	| "copilot";
