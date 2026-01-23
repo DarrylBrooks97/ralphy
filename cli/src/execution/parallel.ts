@@ -455,6 +455,10 @@ export async function runParallel(
 				logTaskProgress(task.title, "failed", workDir);
 				result.tasksFailed++;
 				notifyTaskFailed(task.title, failureReason);
+
+				// Mark failed task as complete to remove it from the queue
+				// This prevents infinite retry loops - the task has already been retried maxRetries times
+				await taskSource.markComplete(task.id);
 			} else if (aiResult?.success) {
 				logSuccess(`Task "${task.title}" completed`);
 				result.totalInputTokens += aiResult.inputTokens;
