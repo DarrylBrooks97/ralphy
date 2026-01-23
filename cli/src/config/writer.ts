@@ -137,7 +137,7 @@ async function flushProgressWrites(): Promise<void> {
 function scheduleFlush(): void {
 	if (flushTimeout) return;
 	flushTimeout = setTimeout(() => {
-		flushProgressWrites();
+		void flushProgressWrites();
 	}, 100); // Batch writes within 100ms window
 }
 
