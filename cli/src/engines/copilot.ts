@@ -75,8 +75,19 @@ export class CopilotEngine extends BaseAIEngine {
 		// Parse Copilot output - extract response from output
 		const response = this.parseOutput(output);
 
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens: 0,
+				outputTokens: 0,
+				error: `Command failed with exit code ${exitCode}`,
+			};
+		}
+
 		return {
-			success: exitCode === 0,
+			success: true,
 			response,
 			inputTokens: 0, // Copilot CLI doesn't expose token counts in programmatic mode
 			outputTokens: 0,
@@ -152,8 +163,19 @@ export class CopilotEngine extends BaseAIEngine {
 		// Parse Copilot output
 		const response = this.parseOutput(output);
 
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens: 0,
+				outputTokens: 0,
+				error: `Command failed with exit code ${exitCode}`,
+			};
+		}
+
 		return {
-			success: exitCode === 0,
+			success: true,
 			response,
 			inputTokens: 0,
 			outputTokens: 0,

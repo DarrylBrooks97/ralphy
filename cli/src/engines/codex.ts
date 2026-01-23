@@ -70,8 +70,19 @@ export class CodexEngine extends BaseAIEngine {
 				};
 			}
 
+			// If command failed with non-zero exit code, provide a meaningful error
+			if (exitCode !== 0) {
+				return {
+					success: false,
+					response: response || "Task completed",
+					inputTokens: 0,
+					outputTokens: 0,
+					error: `Command failed with exit code ${exitCode}`,
+				};
+			}
+
 			return {
-				success: exitCode === 0,
+				success: true,
 				response: response || "Task completed",
 				inputTokens: 0, // Codex doesn't expose token counts
 				outputTokens: 0,

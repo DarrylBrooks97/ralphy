@@ -53,8 +53,19 @@ export class OpenCodeEngine extends BaseAIEngine {
 		// Parse OpenCode JSON format
 		const { response, inputTokens, outputTokens, cost } = this.parseOutput(output);
 
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens,
+				outputTokens,
+				error: `Command failed with exit code ${exitCode}`,
+			};
+		}
+
 		return {
-			success: exitCode === 0,
+			success: true,
 			response,
 			inputTokens,
 			outputTokens,

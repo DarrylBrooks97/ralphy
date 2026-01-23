@@ -59,8 +59,19 @@ export class CursorEngine extends BaseAIEngine {
 		// Parse Cursor output
 		const { response, durationMs } = this.parseOutput(output);
 
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens: 0,
+				outputTokens: 0,
+				error: `Command failed with exit code ${exitCode}`,
+			};
+		}
+
 		return {
-			success: exitCode === 0,
+			success: true,
 			response,
 			inputTokens: 0, // Cursor doesn't provide token counts
 			outputTokens: 0,
@@ -161,8 +172,19 @@ export class CursorEngine extends BaseAIEngine {
 		// Parse Cursor output
 		const { response, durationMs } = this.parseOutput(output);
 
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens: 0,
+				outputTokens: 0,
+				error: `Command failed with exit code ${exitCode}`,
+			};
+		}
+
 		return {
-			success: exitCode === 0,
+			success: true,
 			response,
 			inputTokens: 0,
 			outputTokens: 0,

@@ -20,13 +20,8 @@ import { notifyTaskComplete, notifyTaskFailed } from "../ui/notify.ts";
 import { resolveConflictsWithAI } from "./conflict-resolution.ts";
 import { buildParallelPrompt } from "./prompt.ts";
 import { isRetryableError, withRetry } from "./retry.ts";
-import {
-	cleanupSandbox,
-	createSandbox,
-	getModifiedFiles,
-	getSandboxBase,
-} from "./sandbox.ts";
 import { commitSandboxChanges } from "./sandbox-git.ts";
+import { cleanupSandbox, createSandbox, getModifiedFiles, getSandboxBase } from "./sandbox.ts";
 import type { ExecutionOptions, ExecutionResult } from "./sequential.ts";
 
 interface ParallelAgentResult {
@@ -156,7 +151,7 @@ async function runAgentInSandbox(
 ): Promise<ParallelAgentResult> {
 	const uniqueSuffix = Math.random().toString(36).substring(2, 8);
 	const sandboxDir = join(sandboxBase, `agent-${agentNum}-${uniqueSuffix}`);
-	let branchName = "";
+	const branchName = "";
 
 	try {
 		// Create sandbox
@@ -441,7 +436,9 @@ export async function runParallel(
 
 						if (commitResult.success) {
 							branchName = commitResult.branchName;
-							logDebug(`Agent ${agentNum}: Committed ${commitResult.filesCommitted} files to ${branchName}`);
+							logDebug(
+								`Agent ${agentNum}: Committed ${commitResult.filesCommitted} files to ${branchName}`,
+							);
 						} else {
 							failureReason = commitResult.error || "Failed to commit sandbox changes";
 							preserveSandbox = true; // Preserve work for manual recovery
@@ -458,6 +455,10 @@ export async function runParallel(
 				logTaskProgress(task.title, "failed", workDir);
 				result.tasksFailed++;
 				notifyTaskFailed(task.title, failureReason);
+
+				// Mark failed task as complete to remove it from the queue
+				// This prevents infinite retry loops - the task has already been retried maxRetries times
+				await taskSource.markComplete(task.id);
 			} else if (aiResult?.success) {
 				logSuccess(`Task "${task.title}" completed`);
 				result.totalInputTokens += aiResult.inputTokens;
@@ -479,6 +480,10 @@ export async function runParallel(
 				result.tasksFailed++;
 				notifyTaskFailed(task.title, errMsg);
 				failureReason = errMsg;
+
+				// Mark failed task as complete to remove it from the queue
+				// This prevents infinite retry loops - the task has already been retried maxRetries times
+				await taskSource.markComplete(task.id);
 			}
 
 			// Cleanup sandbox inline or collect worktree for parallel cleanup

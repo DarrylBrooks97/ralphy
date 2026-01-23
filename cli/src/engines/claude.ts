@@ -62,8 +62,19 @@ export class ClaudeEngine extends BaseAIEngine {
 		// Parse result
 		const { response, inputTokens, outputTokens } = parseStreamJsonResult(output);
 
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens,
+				outputTokens,
+				error: `Command failed with exit code ${exitCode}`,
+			};
+		}
+
 		return {
-			success: exitCode === 0,
+			success: true,
 			response,
 			inputTokens,
 			outputTokens,
@@ -131,8 +142,19 @@ export class ClaudeEngine extends BaseAIEngine {
 		// Parse result
 		const { response, inputTokens, outputTokens } = parseStreamJsonResult(output);
 
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens,
+				outputTokens,
+				error: `Command failed with exit code ${exitCode}`,
+			};
+		}
+
 		return {
-			success: exitCode === 0,
+			success: true,
 			response,
 			inputTokens,
 			outputTokens,
